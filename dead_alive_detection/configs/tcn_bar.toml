@@ -1,0 +1,23 @@
+# Best model so far (Benet, 2026-10-30): tcn_last_seen trained on DFL whose players are corrupted
+# like BAR-ATH's and whose dead ball moves with real pieces of BAR's dead-ball motion (DFL freezes
+# it, BAR's tracker never does), decoded by the HSMM with the start and stop heads too.
+# Was dead_alive_hmm/dfl: oof_tcn --train-motion bar --train-players, then evaluate --wide
+# --grid-conditions bar_motion --select bar_motion (BAR folder tcn_bar_boundary).
+extends = "base.toml"
+
+[augment.train]
+recipe = "bar_motion"
+
+[decoding]                 # chosen by the grid below on bar_motion (nested leave-one-out)
+temperature = 0.25
+w_start = 0.5
+w_stop = 2.0
+
+[decoding.grid]
+enabled = true
+extra = [[0.1, 2.0, 0.0], [0.1, 2.0, 0.5], [0.1, 2.0, 1.0], [0.1, 3.0, 0.0], [0.1, 3.0, 0.5],
+         [0.1, 3.0, 1.0], [0.1, 4.0, 0.0], [0.1, 4.0, 0.5], [0.1, 4.0, 1.0],
+         [0.15, 2.0, 0.0], [0.15, 2.0, 0.5], [0.15, 2.0, 1.0], [0.15, 3.0, 0.0], [0.15, 3.0, 0.5],
+         [0.15, 3.0, 1.0], [0.15, 4.0, 0.0], [0.15, 4.0, 0.5], [0.15, 4.0, 1.0],
+         [0.25, 2.0, 0.0], [0.25, 2.0, 0.5], [0.25, 2.0, 1.0], [0.25, 3.0, 0.0], [0.25, 3.0, 0.5],
+         [0.25, 3.0, 1.0], [0.25, 4.0, 0.0], [0.25, 4.0, 0.5], [0.25, 4.0, 1.0]]

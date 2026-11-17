@@ -1,0 +1,24 @@
+# Reads the players only: no ball input at all. A voter for the BAR dead-ball motion library
+# (augment/dead_ball/bar.py) whose choice of dead stretches cannot depend on how the ball looks.
+extends = "tcn_bar.toml"
+
+[features]
+ball = false
+last_seen = false
+
+[augment.recipes.players_only]
+players = "fragments"
+
+[augment.train]
+recipe = "players_only"
+
+[augment.eval]
+conditions = ["players_only", "clean"]
+primary = "players_only"
+
+[augment.players.fragments]
+profile = "cache/players_learned/BAR-ATH.json"   # the same BAR-ATH aggregates as the other voters
+
+[decoding.grid]
+conditions = ["players_only"]
+select_condition = "players_only"

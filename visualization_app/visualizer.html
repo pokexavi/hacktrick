@@ -1,0 +1,93 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<style>
+body{font:14px system-ui;background:#101724;color:#e6edf7;margin:0;padding:16px} video{width:100%;max-height:440px;background:#000;border-radius:12px}button,input,select{font:inherit;padding:7px;border-radius:6px}button{cursor:pointer} .bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:8px;border-bottom:1px solid #354155}.columns{display:grid;grid-template-columns:1fr 1fr;gap:20px}.badge{padding:3px 9px;border-radius:4px;color:white}canvas{width:100%;cursor:pointer}#events{max-height:240px;overflow:auto}.muted{color:#a6b4c8} @media(max-width:700px){.columns{grid-template-columns:1fr}}
+#tracking-section{max-width:600px;margin:20px auto;padding:16px;background:#172333;border:1px solid #2e4150;border-radius:16px;box-sizing:border-box}#tracking-section h3{margin:0 0 8px}#tracking-section .muted{font-size:12px;line-height:1.5}#pitch{display:block;border-radius:10px;cursor:default;box-shadow:0 5px 16px #0003}
+</style>
+<label>Local video (MP4/WebM): <input id="file" type="file" accept="video/*"></label>
+<video id="video" controls playsinline></video>
+<div class="bar"><button id="back">-1 frame</button><button id="next">+1 frame</button><label>Go to frame <input id="seek" type="number" min="0" style="width:110px"></label><button id="go">Go</button><label>Speed <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>1.5</option><option>2</option></select></label><strong id="clock"></strong></div>
+<p id="status" class="muted">Select a video to start.</p>
+<div class="columns"><section><h3>Current frame labels</h3><table><thead><tr><th>Source</th><th>Label</th><th>Comparison</th></tr></thead><tbody id="labels"></tbody></table></section><section><h3>Active Smart Tagging</h3><div id="active"></div></section></div>
+<section id="tracking-section" hidden><h3>ATD pitch view</h3><p class="muted">Home: red | Away: blue | Ball: yellow. Numbers identify tracking slots. Coordinates follow the ATD field orientation.</p><canvas id="pitch"></canvas><p id="tracking-status" class="muted"></p></section>
+<h3>GT window timeline</h3><p class="muted">Click to seek. H red | A blue | D grey | X dark. Yellow: disagreement with known GT. ball_data_missing: orange = missing, green = available, grey = no ATD record.</p><canvas id="whole"></canvas>
+<h3>Nearby events (+/-10 s)</h3><div id="events"></div>
+<script>
+const p=__PAYLOAD__,v=document.getElementById('video'),colors={H:'#d62728',A:'#1f77b4',D:'#858d9a',X:'#354155'};
+const el=id=>document.getElementById(id);let url=null;
+function label(row,f){let lo=0,hi=row.segments.length-1;while(lo<=hi){const m=(lo+hi)>>1,s=row.segments[m];if(f<s[0])hi=m-1;else if(f>=s[1])lo=m+1;else return s[2]}return 'X'}
+function frame(){return p.offset+Math.floor(v.currentTime*p.fps+1e-5)}
+function seek(f){if(!Number.isFinite(v.duration))return;v.currentTime=Math.max(0,Math.min(v.duration,(Math.max(p.start,Math.min(p.end-1,f))-p.offset)/p.fps));update()}
+function cell(row,text){const td=document.createElement('td');td.textContent=text;row.append(td);return td}
+function eventText(e){return e.code+' | '+e.start+' - '+e.end+' | '+Object.entries(e.tags).map(([k,val])=>k+': '+val).join(' | ')}
+function draw(id,start,end,f){
+    const rows=p.ballMissing?[...p.rows,p.ballMissing]:p.rows;
+    const c=el(id),w=Math.max(400,c.clientWidth),h=rows.length*28+12;
+    c.width=w*devicePixelRatio;c.height=h*devicePixelRatio;c.style.height=h+'px';
+    const ctx=c.getContext('2d');ctx.scale(devicePixelRatio,devicePixelRatio);
+    ctx.fillStyle='#101724';ctx.fillRect(0,0,w,h);
+    const left=155,span=Math.max(1,end-start),x=a=>left+(a-start)/span*(w-left);
+    rows.forEach((row,i)=>{
+        const y=i*28,availability=row.kind==='availability';
+        ctx.fillStyle='#e6edf7';ctx.fillText(row.name.slice(0,22),3,y+18);
+        // Uncovered ATD frames remain grey: they are unknown, not known missing observations.
+        if(availability){ctx.fillStyle='#354155';ctx.fillRect(left,y+3,w-left,20)}
+        for(const [a,b,l] of row.segments){
+            if(b<=start||a>=end)continue;
+            ctx.fillStyle=availability?(l==='missing'?'#ed9863':'#65b98a'):colors[l];
+            ctx.fillRect(x(Math.max(a,start)),y+3,Math.max(1,x(Math.min(b,end))-x(Math.max(a,start))),20);
+        }
+        if(i&&!availability&&row.kind!=='binary'){
+            for(let px=left;px<w;px++){
+                const at=Math.floor(start+(px-left)/(w-left)*span),gt=label(p.rows[0],at);
+                if(gt!=='X'&&label(row,at)!==gt){ctx.fillStyle='#ffe04b';ctx.fillRect(px,y+21,1,3)}
+            }
+        }
+    });
+    ctx.strokeStyle='white';ctx.beginPath();ctx.moveTo(x(f),0);ctx.lineTo(x(f),h);ctx.stroke();
+    c.onclick=e=>{const r=c.getBoundingClientRect(),px=(e.clientX-r.left)*w/r.width;if(px>=left)seek(Math.floor(start+(px-left)/(w-left)*span))};
+}
+function drawTracking(f){
+    const section=el('tracking-section');section.hidden=!p.tracking;if(!p.tracking)return;
+    const c=el('pitch'),w=Math.max(1,c.clientWidth),pad=w*0.055;
+    const fieldW=w-2*pad,fieldH=fieldW*68/105.3,h=fieldH+2*pad;
+    c.width=w*devicePixelRatio;c.height=h*devicePixelRatio;c.style.height=h+'px';
+    const ctx=c.getContext('2d');ctx.scale(devicePixelRatio,devicePixelRatio);
+    ctx.fillStyle='#72b884';ctx.fillRect(0,0,w,h);
+    const x=a=>pad+a*fieldW,y=a=>pad+a*fieldH,m=fieldW/105.3;
+    // Alternating grass stripes stay inside the touchlines.
+    for(let i=0;i<10;i++){ctx.fillStyle=i%2?'#87c794':'#7abe89';ctx.fillRect(x(i/10),pad,fieldW/10,fieldH)}
+    ctx.strokeStyle='#f3fff2';ctx.lineWidth=Math.max(1,w/350);ctx.lineJoin='round';
+    function line(ax,ay,bx,by){ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke()}
+    function spot(px,py,r=2){ctx.fillStyle='#f3fff2';ctx.beginPath();ctx.arc(px,py,r,0,Math.PI*2);ctx.fill()}
+    ctx.strokeRect(pad,pad,fieldW,fieldH);line(w/2,pad,w/2,h-pad);
+    ctx.beginPath();ctx.arc(w/2,h/2,9.15*m,0,Math.PI*2);ctx.stroke();spot(w/2,h/2);
+    // Regulation-size penalty areas, goal areas, penalty arcs and netted goals.
+    for(const side of [0,1]){
+        const goalX=x(side),dir=side===0?1:-1;
+        ctx.strokeRect(side===0?goalX:goalX-16.5*m,h/2-20.16*m,16.5*m,40.32*m);
+        ctx.strokeRect(side===0?goalX:goalX-5.5*m,h/2-9.16*m,5.5*m,18.32*m);
+        const penaltyX=goalX+dir*11*m;spot(penaltyX,h/2);
+        const angle=Math.acos(5.5/9.15);
+        ctx.beginPath();ctx.arc(penaltyX,h/2,9.15*m,side===0?-angle:Math.PI-angle,side===0?angle:Math.PI+angle);ctx.stroke();
+        const depth=2.4*m,goalH=7.32*m,netX=side===0?goalX-depth:goalX,netY=h/2-goalH/2;
+        ctx.fillStyle='#f0fff02b';ctx.fillRect(netX,netY,depth,goalH);
+        ctx.save();ctx.strokeStyle='#f3fff280';ctx.lineWidth=0.6;
+        for(let i=1;i<4;i++)line(netX+depth*i/4,netY,netX+depth*i/4,netY+goalH);
+        for(let i=1;i<6;i++)line(netX,netY+goalH*i/6,netX+depth,netY+goalH*i/6);
+        ctx.restore();ctx.strokeRect(netX,netY,depth,goalH);
+    }
+    const data=p.tracking.frames[f];let count=0;
+    function dot(pos,color,text){if(!pos)return;ctx.fillStyle=color;ctx.beginPath();ctx.arc(x(pos[0]),y(pos[1]),Math.max(3,w/105),0,Math.PI*2);ctx.fill();ctx.strokeStyle='#ffffffcc';ctx.lineWidth=1;ctx.stroke();ctx.strokeStyle='#f3fff2';if(text){ctx.font='600 10px system-ui';ctx.lineWidth=3;ctx.strokeStyle='#21462c';ctx.strokeText(text,x(pos[0])+7,y(pos[1])-6);ctx.fillStyle='white';ctx.fillText(text,x(pos[0])+7,y(pos[1])-6);ctx.strokeStyle='#f3fff2'}}
+    if(data){data.players.forEach((pos,i)=>{if(pos)count++;dot(pos,colors[p.tracking.slots[i].team],String(i+1))});dot(data.ball,'#ffe04b','Ball')}
+    el('tracking-status').textContent=data?count+' tracked slots | '+(data.ball?'Ball tracked':'Ball not tracked'):'No ATD record for this frame';
+}
+function update(){const f=frame(),gt=label(p.rows[0],f);drawTracking(f);el('clock').textContent='Frame '+f+' | video '+v.currentTime.toFixed(2)+' s';el('seek').value=f;el('labels').replaceChildren();p.rows.forEach((row,i)=>{const tr=document.createElement('tr'),l=label(row,f);cell(tr,row.name);const td=cell(tr,l);td.style.background=colors[l];cell(tr,row.kind==='binary'?(l==='X'?'Unlabelled':l==='A'?'Alive':'Dead ball'):i===0?(l==='X'?'No public GT':'Reference'):(gt==='X'?'No GT':l===gt?'OK':'Mismatch'));el('labels').append(tr)});el('active').replaceChildren();const active=p.events.filter(e=>e.start<=f&&f<e.end);for(const e of active){const d=document.createElement('p');d.textContent=eventText(e);el('active').append(d)}if(!active.length)el('active').textContent='No active events';el('events').replaceChildren();for(const e of p.events.filter(e=>e.end>f-10*p.fps&&e.start<=f+10*p.fps)){const b=document.createElement('button');b.textContent=eventText(e);b.style.display='block';b.style.marginBottom='6px';b.onclick=()=>seek(e.start);el('events').append(b)}const end=Number.isFinite(v.duration)?p.offset+Math.ceil(v.duration*p.fps):p.offset+60*p.fps;draw('whole',p.start,p.end,f);}
+el('file').onchange=e=>{if(url)URL.revokeObjectURL(url);const file=e.target.files[0];if(!file)return;url=URL.createObjectURL(file);v.src=url;el('status').textContent=file.name+' | local playback';};
+el('back').onclick=()=>{v.pause();seek(frame()-1)};el('next').onclick=()=>{v.pause();seek(frame()+1)};el('go').onclick=()=>seek(Number(el('seek').value));el('speed').onchange=e=>v.playbackRate=Number(e.target.value);
+v.addEventListener('loadedmetadata',()=>seek(p.start));
+v.addEventListener('timeupdate',()=>{if(frame()>=p.end){v.pause();seek(p.end-1)}});
+v.addEventListener('error',()=>el('status').textContent='Video could not be played. Try an H.264 MP4.');
+if(p.videoSrc){v.src=p.videoSrc;el('status').textContent='Configured tactical video | public GT window';}
+v.addEventListener('seeked',update);v.addEventListener('timeupdate',update);window.addEventListener('resize',update);
+if(v.requestVideoFrameCallback){const tick=()=>{update();v.requestVideoFrameCallback(tick)};v.requestVideoFrameCallback(tick)}update();
+</script></html>

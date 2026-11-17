@@ -1,0 +1,7 @@
+# tcn_bar_keeperhold_s1 with the BAR model trained on all 7 DFL matches (run --bar-only).
+extends = "tcn_bar_keeperhold_s1.toml"
+
+[bar]
+enabled = true
+train = "all"
+name = "tcn_bar_keeperhold_s1_all7"

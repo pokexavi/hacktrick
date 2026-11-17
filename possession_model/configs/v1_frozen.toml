@@ -1,0 +1,121 @@
+# The possession model's only config: every option, with its value. Change any of them here, or
+# for one run with --set section.key=value. A key not in this file is an error.
+#
+# The model: set attention per step, two team views, a temporal transformer, a
+# possession head and a change head, decoded by a two-state HSMM per live stretch.
+
+name = "v1_frozen"         # runs are possession_model/results/<name>_<i>
+
+[data]
+dfl_dir = "external/dfl/processed"   # DFL as published (its DFL-MAT-* matches, external/fetch_dfl.py)
+labels_dir = "possession_exploration/labels"   # manual edit/review logs applied on DFL's labels
+                           # (data.py); "" = DFL's labels only
+test_match = "DFL-MAT-J03WR9"   # held out from every decision; scored once with run --test
+folds = []                 # development matches held out in turn; empty = every other DFL match
+min_frames = 25            # labels = external/labels.controlled(label, period, 25): possessions shorter
+                           # than 1 s sandwiched between two of the other team are merged (after the
+                           # edits; spells around a transition reviewed ok/edited are kept). Training
+                           # target and evaluation reference alike
+
+[runtime]
+threads = 8                # torch CPU threads
+device = "auto"            # "auto" (cuda if available), "cpu" or "cuda"
+cache = "cache/possession_model"   # models and held-out outputs per run (gitignored)
+bundle = ""                # a Kaggle bundle's items/ folder (bundle.py): the corrupted copies are read
+                           # from it instead of computed. Empty = compute them here
+
+[steps]                    # features.py: 25 fps tracking -> steps with tokens
+hz = 5                     # steps per second (1, 5 or 25)
+smooth_frames = 5          # moving average of every slot's positions before velocities (frames)
+vel_frames = 2             # velocity: central difference over +-this many frames
+acc_frames = 5             # acceleration: difference of velocities over +-this many frames
+speed_cap = 10.0           # m/s: faster is an identity switch, the velocity is marked unreliable
+accel_cap = 10.0           # m/s^2: likewise
+max_per_team = 16          # tokens per team per step; slots beyond (duplicates) are dropped
+since_cap_s = 10.0         # the ball's time since last seen is capped here
+
+# --- corruption: DFL made to look like BAR-ATH (the dead-ball model's corruptions) ---------------
+#
+# Training copies: players lost the BAR way ("learned"), ball hidden the BAR way, one copy per
+# hidden_frac. Scored conditions of every held-out match:
+#   clean              DFL as it is
+#   bar_motion         players cut at random into anonymous slots ("fragments"), ball hidden  <- headline
+#   bar_motion_crowd   players lost the BAR way ("learned"), ball hidden
+# The dead ball stays as in DFL (frozen). The BAR-fitted models below are read only when the copies
+# are computed here (not with a bundle).
+
+[augment]
+hidden_fracs = [0.0, 0.25, 0.41, 0.6, 0.8, 1.0]   # one training copy per value: share of steps with
+                           # the ball hidden
+mirror_y = 0.5             # probability of mirroring a training window across the long axis
+
+[augment.fragments]        # dead_alive_detection/augment/players/fragments.py
+seed = 7
+profile = "data/processed/noise_profile.json"
+duplicates = true
+duplicate_max_s = 30.0
+duplicate_offset_m = [0.3, 2.0]
+n_draws = 20000
+bisection_steps = 12
+
+[augment.learned]          # dead_alive_detection/augment/players/learned.py
+seed = 10
+model = "cache/players_learned/BAR-ATH.json"
+bisection_steps = 8
+duplicates = true
+duplicate_max_s = 30.0
+duplicate_offset_m = [0.3, 2.0]
+n_draws = 20000
+duplicate_bisection_steps = 12
+crowd_scale = 1.5
+
+[augment.ball]             # dead_alive_detection/augment/ball/hidden.py
+seed = 0
+model = "cache/ball_loss/BAR-ATH.json"
+
+# --- the network -----------------------------------------------------------------------------------
+
+[model.encoder]            # model.py SetEncoder: attention between the tokens of one step
+d = 64                     # width
+heads = 4
+layers = 2
+biased_heads = 2           # heads whose attention falls with distance; the others attend globally
+dist_scale_m = 10.0        # the distance bias starts at -1 per this many metres
+ff_mult = 2                # feed-forward width = ff_mult * d
+dropout = 0.0
+
+[model.temporal]           # model.py Temporal: bidirectional over the steps, sees the dead steps too
+layers = 2
+heads = 4
+window_s = 30.0            # training and inference windows
+ff_mult = 2
+dropout = 0.1
+
+[heads]
+change_weight = 0.5        # weight of the change-of-possession head in the loss
+change_sigma_s = 0.4       # width of its soft target around every change
+
+[train]
+epochs = 20                # fixed, no early stopping
+batches_per_epoch = 150
+batch_size = 16
+learning_rate = 1e-3       # AdamW
+weight_decay = 1e-4
+grad_clip = 1.0
+seeds = [0]                # one model per seed in every fold; their logits are averaged (an ensemble).
+                           # [0, 1, 2]: three models per fold, ~3x the training time
+log_every = 5              # held-out spellF1 every this many epochs (only to watch); 0 = never
+
+# --- decoding: per-step probabilities -> whole possessions (HSMM) ---------------------------------
+
+[decoding]                 # chosen by grid.py on an earlier run without the annotations
+temperature = 0.5          # weight of the network's evidence against the duration prior
+w_change = 2.0             # weight of the change head at a switch
+bandwidth = 0.25           # width of the duration prior's log-normal bumps
+max_s = 300.0              # longest possession
+
+[decoding.grid]            # grid.py: every combination on the saved outputs, nested selection
+temperatures = [0.25, 0.5, 1.0]
+w_change = [0.0, 1.0, 2.0, 4.0]
+bandwidths = [0.25, 0.35, 0.5]
+select_metric = "spell_f1_mean"

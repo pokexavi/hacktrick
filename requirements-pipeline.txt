@@ -1,0 +1,26 @@
+# Everything the submission pipeline and the two Streamlit apps need. Python 3.11.
+# Exact versions of the team's environment (requirements-lock.txt is its full Windows pip freeze).
+#
+#   python -m pip install -r requirements-pipeline.txt
+#   python -m pip install torch==2.15.0 --index-url https://download.pytorch.org/whl/cpu
+#
+# torch is installed on its own line so that pip takes the CPU build on every platform: the dead-ball
+# model is bit-identical only on the CPU, with the torch thread count set in its config.
+
+# models, features, decoding
+numpy==2.4.6
+pandas==3.0.6
+pyarrow==26.0.0          # parquet engine of pandas (external/schema.py)
+scipy==1.17.1
+scikit-learn==1.9.1
+kloppy==3.18.0           # DFL events: stoppage types (dead_alive_detection/evaluation/stoppage_types.py)
+imageio-ffmpeg==0.6.0    # audio of the broadcast video (whistle detector) and video clips in the app
+
+# review app (visualization_app/) and labelling app (possession_exploration/app.py)
+streamlit==1.66.1
+altair==6.3.0
+matplotlib==3.11.2
+pillow==13.0.0
+
+# synthetic sample generation: camera geometry and optional video
+opencv-python==5.0.0.93

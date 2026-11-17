@@ -1,0 +1,14 @@
+# tcn_bar exactly as Benet ran it on 2026-10-30 (oof_bar): the BAR motion library voted by the old
+# hsmm / tcn_last_seen / tcn_moving outputs, and the old players profile. The base for the seed
+# and feature experiments of 2026-11-03, so that they compare with oof_bar (seed 0).
+extends = "tcn_bar.toml"
+
+[augment.players.fragments]
+profile = "data/processed/noise_profile.json"
+
+[augment.dead_ball.bar]
+library = "cache/dead_alive_dfl/bar_motion/library_old_voters.npz"
+voters = ["hsmm", "tcn_last_seen", "tcn_moving"]
+
+[decoding.grid]
+enabled = false            # the run's decoder (0.25, 0.5, 2.0) only: faster, and comparable

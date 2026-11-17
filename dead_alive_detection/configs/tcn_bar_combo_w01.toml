@@ -1,0 +1,17 @@
+# Combo (2026-11-05 night): tcn_bar_v1_whistle (bar_motion + whistle input) plus the stoppage-type
+# output (7 classes, weight 0.1) and the speed cleaning of tcn_bar_caps_bumps (caps 10 m/s and
+# 10 m/s^2, p90 bumps 2.5 s / 3.25 m/s). Compare with tcn_bar_v1_whistle{,_s1,_s2}.
+extends = "tcn_bar_v1_whistle.toml"
+
+[types]
+classes = ["whistle", "throw_in", "goal_kick", "corner", "goal", "incident", "other"]
+weight = 0.1
+
+[features]
+speed_cap = 10.0
+accel_cap = 10.0
+bump_s = 2.5
+bump_mps = 3.25
+
+[bar]
+name = "tcn_bar_combo_w01"

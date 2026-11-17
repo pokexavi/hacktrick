@@ -1,0 +1,44 @@
+# tcn_bar_v1 + a referee-whistle input (2026-11-04). Trained on DFL with whistles made up from its
+# events (augment/whistle/simulated.py, profile "train": detector recall 0.1-0.8 and 0-0.25 false
+# whistles per minute, drawn per copy); on BAR-ATH the flag comes from the broadcast-audio detector
+# ([bar] whistles, the preset). Scored without whistles (bar_motion: does it still work without
+# audio?) and with the bar / low / high profiles. Compare with the seed mean of tcn_bar_v1.
+extends = "tcn_bar_v1.toml"
+
+[features]
+whistle = true
+
+[augment.train]
+recipe = "bar_motion_whistle_train"
+
+[augment.eval]
+conditions = ["bar_motion", "bar_motion_whistle", "bar_motion_whistle_low",
+              "bar_motion_whistle_high", "clean"]
+primary = "bar_motion_whistle"
+
+[augment.recipes.bar_motion_whistle_train]
+players = "fragments"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "train"
+
+[augment.recipes.bar_motion_whistle]
+players = "fragments"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "bar"
+
+[augment.recipes.bar_motion_whistle_low]
+players = "fragments"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "low"
+
+[augment.recipes.bar_motion_whistle_high]
+players = "fragments"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "high"
+
+[bar]
+name = "tcn_bar_v1_whistle"

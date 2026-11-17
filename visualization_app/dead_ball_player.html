@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    html, body { margin: 0; background: transparent; font-family: system-ui, sans-serif; color: #e6edf7; }
+    .wrap { width: 100%; }
+    .views { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+    @media (max-width: 800px) { .views { grid-template-columns: 1fr; } }
+    .pitch-panel { background: #172333; padding: 10px; border-radius: 10px; }
+    .pitch-panel h3 { margin: 0 0 8px; font-size: 15px; }
+    canvas#pitch { cursor: default; border-radius: 8px; }
+    .player { position: relative; box-sizing: border-box; border: 6px solid #2e7d32;
+              border-radius: 10px; overflow: hidden; background: #101828; transition: border-color 60ms linear; }
+    .player.dead { border-color: #9e9e9e; }
+    video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #101828; }
+    .badges { position: absolute; top: 12px; left: 12px; display: flex; flex-wrap: wrap; gap: 6px; pointer-events: none; max-width: 95%; }
+    .badge { padding: 5px 9px; border-radius: 5px; font-weight: 700; font-size: 12px; color: white; }
+    .bar { display: flex; gap: 10px; align-items: center; margin: 8px 0; font-size: 13px; }
+    button, select { font: inherit; padding: 4px 10px; border-radius: 5px; cursor: pointer; }
+    canvas { width: 100%; display: block; cursor: pointer; background: #101724; border-radius: 8px; }
+    .legend { font-size: 12px; color: #a6b4c8; margin-top: 4px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="views">
+    <div>
+      <div class="player" id="player">
+        <video id="video" controls playsinline preload="metadata" src="data:video/mp4;base64,__VIDEO_BASE64__"></video>
+        <div class="badges" id="badges"></div>
+      </div>
+      <div class="bar">
+        <button id="back">-1 frame</button><button id="next">+1 frame</button>
+        <label>Speed <select id="speed"><option>0.25</option><option>0.5</option><option selected>1</option><option>1.5</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
+        <label>Heads of <select id="heads"></select></label>
+        <strong id="clock"></strong>
+      </div>
+    </div>
+    <section class="pitch-panel">
+      <h3>2D tracking</h3>
+      <canvas id="pitch" aria-label="Player and ball positions on a football pitch"></canvas>
+      <div class="legend">Home: red · Away: blue · Ball: yellow. Numbers are tracking slots, not player identities. Orientation follows ATD coordinates.</div>
+      <div class="legend" id="tracking-status"></div>
+    </section>
+  </div>
+  <canvas id="timeline"></canvas>
+  <div class="legend">Click to seek. Shaded = the selected interval. Border = reference model (green alive, grey dead).
+    Model rows: green = alive; Dead in grey, or by stoppage type: whistle purple, throw-in light blue, goal kick teal,
+    corner orange, goal gold, incident red, other grey.
+    Event row: Smart Tagging set pieces and goals (~35 s windows around the restart).
+    Whistles row: the detected referee whistles (green; also green lines over the curves). Spectrogram (when on):
+    the broadcast audio, 1.5-5.5 kHz, higher pitch up; a whistle is a short bright line at ~3.8 kHz.
+    p_dead curves use each model's colour; dashed line = 0.5.
+    Heads: p_start (cyan) and p_stop (pink) of the model chosen in <em>Heads of</em>, its p_dead (thin, its colour)
+    and its decoded edges (vertical lines: solid = stoppage starts, dashed = play restarts);
+    "m" = the decoder's margin for keeping each segment (red below 10: a close call); "w" = the part of it that
+    comes from the whistles (whistle models only).</div>
+</div>
+<script>
+const p = __PAYLOAD__;
+const v = document.getElementById('video'), el = id => document.getElementById(id);
+const colours = {H: '#d62728', A: '#1f77b4', D: '#9e9e9e', X: '#354155', alive: '#2e7d32'};
+// Typed Dead states (e.g. 'corner') get their own colour; any Dead type counts as dead.
+const typeColours = {corner: '#ff9800', whistle: '#8e44ad', throw_in: '#5dade2', goal_kick: '#16a085',
+                     goal: '#f1c40f', incident: '#e74c3c', other: '#9e9e9e'};
+const isDead = s => s === 'D' || s in typeColours;
+const stateColour = s => s === 'alive' ? colours.alive : s === 'D' ? colours.D : typeColours[s] || colours.X;
+const n = p.clipEnd - p.clipStart;
+const frameAt = t => Math.min(p.clipEnd - 1, p.clipStart + Math.floor(t * p.fps + 1e-6));
+
+function badge(text, colour) {
+  const b = document.createElement('span'); b.className = 'badge'; b.textContent = text; b.style.background = colour; return b;
+}
+
+function update() {
+  const f = frameAt(v.currentTime), i = f - p.clipStart;
+  const ref = p.models[p.reference];
+  el('player').classList.toggle('dead', isDead(ref.state[i]));
+  const badges = [];
+  if (p.gt[i] !== 'X') badges.push(badge('GT: ' + p.gt[i], colours[p.gt[i]]));
+  for (const m of p.models) {
+    const s = m.state[i], q = m.p[i];
+    const text = s === 'D' ? 'DEAD' : s === 'alive' ? 'alive' : isDead(s) ? 'DEAD (' + s + ')' : '—';
+    badges.push(badge(m.name + ': ' + text + (q === null ? '' : ' ' + q.toFixed(2)),
+      s === 'D' ? '#616161' : isDead(s) ? typeColours[s] : '#2e7d32'));
+  }
+  el('badges').replaceChildren(...badges);
+  el('clock').textContent = 'frame ' + f + '  ·  ' + ((f / p.fps / 60) | 0) + ':' + ((f / p.fps) % 60).toFixed(2).padStart(5, '0')
+    + (p.ball[i] === 0 ? '  ·  ball not tracked' : '');
+  drawPitch(f);
+  draw(f);
+}
+
+// The 2D pitch, as on the Events page: ATD positions are normalised 0-1 over a 105.3 x 68 m pitch.
+function drawPitch(frame) {
+  const canvas = el('pitch');
+  const w = Math.max(1, canvas.clientWidth), pad = w * .055;
+  const fw = w - 2 * pad, scale = fw / 105.3, fh = 68 * scale, h = fh + 2 * pad;
+  canvas.width = w * devicePixelRatio; canvas.height = h * devicePixelRatio; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d'); ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.fillStyle = '#397a4e'; ctx.fillRect(0, 0, w, h);
+  const x = value => pad + value * fw, y = value => pad + value * fh;
+  for (let k = 0; k < 10; k++) { ctx.fillStyle = k % 2 ? '#438a59' : '#3e8254'; ctx.fillRect(x(k / 10), pad, fw / 10, fh); }
+  ctx.strokeStyle = '#f3fff2'; ctx.lineWidth = 1.4;
+  ctx.strokeRect(pad, pad, fw, fh);
+  ctx.beginPath(); ctx.moveTo(w / 2, pad); ctx.lineTo(w / 2, pad + fh); ctx.stroke();
+  ctx.beginPath(); ctx.arc(w / 2, h / 2, 9.15 * scale, 0, 2 * Math.PI); ctx.stroke();
+  for (const side of [0, 1]) {
+    const gx = x(side), direction = side === 0 ? 1 : -1;
+    for (const [depth, width] of [[16.5, 40.32], [5.5, 18.32]])
+      ctx.strokeRect(side === 0 ? gx : gx - depth * scale, h / 2 - width * scale / 2, depth * scale, width * scale);
+    ctx.strokeRect(side === 0 ? gx - 2 * scale : gx, h / 2 - 3.66 * scale, 2 * scale, 7.32 * scale);
+    ctx.beginPath(); ctx.arc(gx + direction * 11 * scale, h / 2, 1.5, 0, 2 * Math.PI); ctx.fillStyle = '#f3fff2'; ctx.fill();
+  }
+  const data = p.tracking ? p.tracking.frames[frame] : null;
+  let home = 0, away = 0;
+  const dot = (position, colour, label) => {
+    if (!position) return;
+    ctx.beginPath(); ctx.arc(x(position[0]), y(position[1]), Math.max(3, w / 100), 0, 2 * Math.PI);
+    ctx.fillStyle = colour; ctx.fill(); ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+    if (label) { ctx.font = 'bold 10px system-ui'; ctx.lineWidth = 3; ctx.strokeStyle = '#12301d';
+      ctx.strokeText(label, x(position[0]) + 6, y(position[1]) - 6);
+      ctx.fillStyle = 'white'; ctx.fillText(label, x(position[0]) + 6, y(position[1]) - 6); }
+  };
+  if (data) {
+    data.players.forEach((position, k) => {
+      const team = p.tracking.slots[k].team;
+      if (position) { if (team === 'H') home++; else if (team === 'A') away++; }
+      dot(position, team === 'H' ? '#ef4444' : team === 'A' ? '#3b82f6' : '#aaa', String(k + 1));
+    });
+    dot(data.ball, '#ffe04b', 'Ball');
+  }
+  el('tracking-status').textContent = !p.tracking ? 'Tracking unavailable.'
+    : !data ? 'Frame ' + frame + ' · no ATD record'
+    : 'Frame ' + frame + ' · Home: ' + home + ' · Away: ' + away + ' · ' + (data.ball ? 'ball tracked' : 'ball not tracked');
+}
+
+const sources = [['Smart Tagging', () => true]];
+const specImg = new Image();
+if (p.spec) { specImg.src = 'data:image/png;base64,' + p.spec.png; specImg.onload = () => update(); }
+const headsSelect = el('heads');
+p.models.forEach((m, k) => { const o = document.createElement('option'); o.value = k; o.textContent = m.name;
+  if (!m.pStart) o.textContent += ' (no heads saved)'; headsSelect.appendChild(o); });
+headsSelect.value = p.reference;
+headsSelect.onchange = update;
+
+function draw(f) {
+  const c = el('timeline'), w = Math.max(400, c.clientWidth), rowH = 20, plotH = 100, headsH = 90, left = 150;
+  const hasWh = Array.isArray(p.whistles), specH = p.spec ? 90 : 0;
+  const rows = 2 + p.models.length + sources.length + (hasWh ? 1 : 0), h = rows * rowH + specH + plotH + headsH + 40;
+  c.width = w * devicePixelRatio; c.height = h * devicePixelRatio; c.style.height = h + 'px';
+  const ctx = c.getContext('2d'); ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.fillStyle = '#101724'; ctx.fillRect(0, 0, w, h);
+  const x = i => left + i / n * (w - left - 6);
+  ctx.fillStyle = '#ffffff14';
+  ctx.fillRect(x(p.selStart - p.clipStart), 0, x(p.selStop - p.clipStart) - x(p.selStart - p.clipStart), h);
+  ctx.font = '12px system-ui';
+  const row = (y, name, colourOf, labelColour) => {
+    ctx.fillStyle = labelColour || '#e6edf7'; ctx.fillText(name.slice(0, 22), 4, y + 14);
+    for (let i = 0; i < n; i++) { const col = colourOf(i); if (col) { ctx.fillStyle = col; ctx.fillRect(x(i), y + 3, Math.max(1, x(i + 1) - x(i)), rowH - 6); } }
+  };
+  row(0, 'GT', i => colours[p.gt[i]]);
+  p.models.forEach((m, k) => row((k + 1) * rowH, m.name, i => stateColour(m.state[i]), m.colour));
+  row((p.models.length + 1) * rowH, 'ball', i => p.ball[i] === 1 ? '#65b98a' : p.ball[i] === 0 ? '#ed9863' : null);
+  sources.forEach(([label, keep], k) => {
+    const y0 = (p.models.length + 2 + k) * rowH;
+    ctx.fillStyle = '#e6edf7'; ctx.fillText(label, 4, y0 + 14);
+    for (const e of p.events.filter(keep)) {
+      const a = x(Math.max(0, e.start - p.clipStart)), b = x(Math.min(n, e.stop - p.clipStart));
+      ctx.globalAlpha = 0.85; ctx.fillStyle = e.colour; ctx.fillRect(a, y0 + 3, Math.max(2, b - a), rowH - 6);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#101724'; ctx.font = 'bold 11px system-ui'; ctx.fillText(e.label, a + 3, y0 + 14, Math.max(0, b - a - 4));
+      ctx.font = '12px system-ui';
+    }
+  });
+  if (hasWh) {
+    const y0 = (p.models.length + 2 + sources.length) * rowH;
+    ctx.fillStyle = '#e6edf7'; ctx.fillText('whistles', 4, y0 + 14);
+    ctx.fillStyle = '#2b3a4f'; ctx.fillRect(x(0), y0 + 3, x(n) - x(0), rowH - 6);
+    ctx.fillStyle = '#7CFC00';
+    for (const [a, b] of p.whistles) { const xa = x(Math.max(0, a - p.clipStart)), xb = x(Math.min(n, b - p.clipStart));
+      ctx.fillRect(xa - 1, y0 + 1, Math.max(3, xb - xa), rowH - 2); }
+  }
+  if (p.spec) {
+    const y0 = rows * rowH + 2, H = specH - 6;
+    if (specImg.complete && specImg.naturalWidth) ctx.drawImage(specImg, x(0), y0, x(n) - x(0), H);
+    ctx.fillStyle = '#e6edf7'; ctx.fillText('spectrogram', 4, y0 + 14);
+    ctx.fillStyle = '#a6b4c8'; ctx.font = '10px system-ui';
+    const fy = f => y0 + (1 - (f - p.spec.fmin) / (p.spec.fmax - p.spec.fmin)) * H;
+    for (const k of [2, 3, 4, 5]) ctx.fillText(k + ' kHz', left - 34, fy(k * 1000) + 3);
+    ctx.font = '12px system-ui';
+  }
+  const top = rows * rowH + specH + 8, y = q => top + (1 - q) * plotH;
+  ctx.fillStyle = '#e6edf7'; ctx.fillText('p_dead', 4, top + 12);
+  ctx.strokeStyle = '#ffffff55'; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(left, y(0.5)); ctx.lineTo(w, y(0.5)); ctx.stroke(); ctx.setLineDash([]);
+  for (const m of p.models) {
+    ctx.strokeStyle = m.colour; ctx.lineWidth = 2; ctx.beginPath(); let on = false;
+    for (let i = 0; i < n; i++) { const q = m.p[i]; if (q === null) { on = false; continue; }
+      if (!on) { ctx.moveTo(x(i), y(q)); on = true; } else ctx.lineTo(x(i), y(q)); }
+    ctx.stroke();
+  }
+  ctx.lineWidth = 1;
+  // Start / stop heads of one model, with the edges its decoder chose.
+  const hm = p.models[Number(headsSelect.value)], top2 = top + plotH + 22, y2 = q => top2 + (1 - q) * headsH;
+  ctx.fillStyle = '#e6edf7'; ctx.fillText('heads', 4, top2 + 12);
+  ctx.fillStyle = hm.colour; ctx.fillText(hm.name.slice(0, 22), 4, top2 + 28);
+  ctx.strokeStyle = '#ffffff22'; ctx.strokeRect(left, top2, w - left - 6, headsH);
+  if (!hm.pStart) { ctx.fillStyle = '#a6b4c8'; ctx.fillText('no p_start / p_stop in this folder (re-run predict)', left + 8, top2 + 40); }
+  const curve = (values, colour, width) => {
+    if (!values) return;
+    ctx.strokeStyle = colour; ctx.lineWidth = width; ctx.beginPath(); let on = false;
+    for (let i = 0; i < n; i++) { const q = values[i]; if (q === null) { on = false; continue; }
+      if (!on) { ctx.moveTo(x(i), y2(q)); on = true; } else ctx.lineTo(x(i), y2(q)); }
+    ctx.stroke();
+  };
+  curve(hm.p, hm.colour + '88', 1); curve(hm.pStart, '#22d3ee', 2); curve(hm.pStop, '#f472b6', 2);
+  for (let i = 1; i < n; i++) {
+    const was = isDead(hm.state[i - 1]), is = isDead(hm.state[i]);
+    if (was === is) continue;
+    ctx.strokeStyle = is ? '#22d3ee' : '#f472b6'; ctx.lineWidth = 1.5; ctx.setLineDash(is ? [] : [5, 3]);
+    ctx.beginPath(); ctx.moveTo(x(i), top2); ctx.lineTo(x(i), top2 + headsH); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // The decoder's margin for keeping each segment (decisions.csv): red = close call.
+  for (const d of hm.decisions || []) {
+    const a = x(Math.max(0, d.start - p.clipStart)), b = x(Math.min(n, d.stop - p.clipStart));
+    if (b - a < 18) continue;
+    ctx.fillStyle = d.margin < 10 ? '#ff6b6b' : '#a6b4c8'; ctx.font = (d.margin < 10 ? 'bold ' : '') + '11px system-ui';
+    const wtxt = d.whistle !== null && d.whistle !== undefined && Math.abs(d.whistle) >= 0.05
+      ? ' · w ' + (d.whistle > 0 ? '+' : '') + d.whistle.toFixed(1) : '';
+    ctx.fillText('m ' + d.margin.toFixed(1) + wtxt, (a + b) / 2 - 16, top2 + 12, b - a - 2);
+  }
+  ctx.font = '12px system-ui';
+  ctx.lineWidth = 1;
+  if (hasWh) {   // the whistles over the curves
+    ctx.strokeStyle = '#7CFC0099'; ctx.lineWidth = 1.5;
+    for (const [a] of p.whistles) { if (a < p.clipStart) continue; const xa = x(a - p.clipStart);
+      ctx.beginPath(); ctx.moveTo(xa, top); ctx.lineTo(xa, top2 + headsH); ctx.stroke(); }
+    ctx.lineWidth = 1;
+  }
+  ctx.strokeStyle = '#ffe04b'; ctx.beginPath(); ctx.moveTo(x(f - p.clipStart), 0); ctx.lineTo(x(f - p.clipStart), h); ctx.stroke();
+  c.onclick = e => { const r = c.getBoundingClientRect(), px = (e.clientX - r.left) * w / r.width;
+    if (px >= left) { v.currentTime = Math.max(0, (px - left) / (w - left - 6) * n / p.fps); update(); } };
+}
+
+el('back').onclick = () => { v.pause(); v.currentTime = Math.max(0, v.currentTime - 1 / p.fps); };
+el('next').onclick = () => { v.pause(); v.currentTime = v.currentTime + 1 / p.fps; };
+const setSpeed = value => { el('speed').value = value; v.defaultPlaybackRate = v.playbackRate = Number(value); };
+el('speed').onchange = e => {
+  setSpeed(e.target.value);
+  try { localStorage.setItem('deadBallSpeed', e.target.value); } catch (error) {}   // kept from clip to clip
+};
+try { const saved = localStorage.getItem('deadBallSpeed'); if (saved) setSpeed(saved); } catch (error) {}
+for (const name of ['loadedmetadata', 'seeking', 'seeked', 'timeupdate', 'pause']) v.addEventListener(name, update);
+window.addEventListener('resize', update);
+if ('requestVideoFrameCallback' in v) { const tick = () => { update(); v.requestVideoFrameCallback(tick); }; v.requestVideoFrameCallback(tick); }
+update();
+</script>
+</body>
+</html>

@@ -1,0 +1,251 @@
+# Every option of a dead-ball experiment, with its default. Read by config.py.
+#
+# An experiment file starts with `extends = "base.toml"` and lists only what it changes; a key
+# that is not here is an error. Paths are relative to the repository root. Defaults = Xavi's
+# tcn_last_seen (players + ball + collective + last-seen features, ball hidden like BAR-ATH,
+# HSMM on the dead head), scored under every DFL condition below.
+
+name = ""                  # run name; empty = the config file's name. Runs are results/<name>_<i>
+
+[data]
+test_match = "DFL-MAT-J03WR9"   # held out from every decision; scored once with run --test
+folds = []                 # development matches to hold out in turn; empty = all six
+datasets = ["dfl"]         # which matches of external/dfl/processed are read, by their source:
+                           # dfl, metrica (external/convert_metrica.py). Metrica's dead ball is an
+                           # estimate: with it, list the DFL matches in folds
+
+[runtime]
+threads = 10               # torch CPU threads: pinned, so that two runs are bit-identical
+processes = 10             # worker processes of the decoder grid
+cache = "cache/dead_alive_dfl"  # per-run heavy outputs (models, held-out heads): gitignored
+
+[features]
+# Per-step inputs at 5 Hz (loading/features.py), not window averages: the TCN learns its own
+# time scales.
+walking_speed = 1.0        # m/s: a player slower than this counts as walking
+touchline_m = 3.0          # a player closer than this to a touchline counts as near it
+ball = true                # the twelve ball features
+collective = true          # the eight collective-stop features
+last_seen = true           # last-seen ball geometry (last_line_dist, last_toward_line), kept through gaps
+formation = false          # where players stand: own half, clusters, nearest player, centre circle
+ball_exit = false          # ball heading out: seconds to the line, projected position while lost
+feature_set = "v1"         # "v1": the inputs above (loading/features.py); "v2": 32 inputs, robust
+                           # to slot swaps, with keeper and box features (loading/features_v2.py;
+                           # needs ball, collective and last_seen, no formation / ball_exit / caps)
+whistle = false            # referee-whistle flag: simulated on DFL (recipe whistle), detected on
+                           # BAR-ATH's broadcast audio ([bar] whistles); 0 where a recipe has none
+tracked = false            # players tracked per team (a count, not a fraction): see augment/players
+keeper = false             # goalkeeper next to the last-seen ball, his speed and distance to goal
+# Identity-switch cleaning of the speed features (loading/features.py speed_signals; explore it with
+# tracking_cleaning/app.py). 0 = off. Applied alike to DFL after its corruption and to BAR-ATH.
+speed_cap = 0.0            # m/s: a player faster than this is left out of the speed features
+accel_cap = 0.0            # m/s^2: likewise, a velocity changing faster than this (over 0.4 s)
+bump_s = 0.0               # s: with bump_mps, a rise and fall of the p90 speed narrower than this...
+bump_mps = 0.0             # m/s: ...and at least this high becomes a straight line in every speed signal
+
+# --- augment: how a clean DFL match is made to look like BAR-ATH ---------------------------------
+#
+# A recipe picks one option for each of the three corruptions. To compare the effect of one, copy
+# a recipe and change that one line. Whatever the order of the lines, they are applied as:
+#   0. swaps      none | bar  (optional key, absent = none)
+#                 bar: players' tracks swapped progressively between players of one or both
+#                 teams, at BAR-ATH's rate and with its swaps' shapes (augment/players/swaps.py)
+#   1. players    clean | fragments | learned
+#                 fragments: tracks cut at random into pieces in anonymous slots, plus duplicated
+#                 players, at BAR-ATH's rates (augment/players/fragments.py)
+#                 learned: the same slots and duplicates, but players vanish and come back in the
+#                 situations they do on BAR-ATH (augment/players/learned.py)
+#   2. dead_ball  frozen | uniform | bar
+#                 DFL freezes the ball in every dead stretch; BAR-ATH's keeps moving. uniform: a
+#                 made-up path at one speed (augment/dead_ball/uniform.py); bar: pieces of BAR's
+#                 own dead-ball motion (augment/dead_ball/bar.py)
+#   3. ball       clean | hidden
+#                 hidden: hide the ball the way BAR-ATH's tracker loses it (augment/ball/hidden.py)
+#   4. whistle    none | <a profile of [augment.whistle.profiles]>
+#                 referee whistles made up from the DFL events, kept at the profile's detector
+#                 recall, plus false ones (augment/whistle/simulated.py). Only read when
+#                 [features] whistle = true
+# Training views use one recipe, once per hidden_frac; every scored condition is a recipe too.
+# Seeds: every random draw is rng([seed of its step, match index, copy]), copy 0 for the scored
+# match and 1 + k for training copy k. (For the scored match, fragments and uniform motion use
+# rng([seed, match index]): that keeps earlier runs reproducible bit for bit.)
+
+[augment]
+
+[augment.train]
+recipe = "bar_ball"        # recipe of the training views
+hidden_fracs = [0.0, 0.25, 0.41, 0.6, 0.8, 1.0]   # one training copy per value: share of steps
+                           # with the ball hidden (0 = clean). Each epoch draws one copy per match
+
+[augment.eval]
+conditions = ["bar_ball", "bar_ball_players", "bar_moving", "bar_motion", "clean"]  # scored on
+                           # every held-out match (the network is trained once per fold)
+primary = "bar_motion"     # the headline condition: printed, monitored while training. The
+                           # closest to BAR-ATH. Xavi's first runs reported bar_ball
+
+[augment.recipes]          # open table: add your own recipes, [augment.recipes.<name>]
+[augment.recipes.clean]    # DFL as it is
+
+[augment.recipes.bar_ball]                         # Xavi's scored condition
+ball = "hidden"
+
+[augment.recipes.bar_ball_players]
+players = "fragments"
+ball = "hidden"
+
+[augment.recipes.bar_moving]
+players = "fragments"
+dead_ball = "uniform"
+ball = "hidden"
+
+[augment.recipes.bar_motion]                       # random fragments, BAR's dead-ball motion
+players = "fragments"
+dead_ball = "bar"
+ball = "hidden"
+
+[augment.recipes.bar_learned]                      # bar_motion with learned player losses
+players = "learned"
+dead_ball = "bar"
+ball = "hidden"
+
+[augment.players.fragments]    # augment/players/fragments.py (players = "fragments")
+seed = 7
+profile = "cache/players_learned/BAR-ATH.json"   # BAR-ATH aggregates (augment/players/fit_learned.py)
+duplicates = true          # add duplicated players (else fragments only)
+duplicate_max_s = 30.0     # a duplicate lasts at most this long (assumption)
+duplicate_offset_m = [0.3, 2.0]   # its fixed offset from the real player (assumption)
+n_draws = 20000            # pre-drawn duplicate candidates per team
+bisection_steps = 12       # search of the duplicate rate that matches BAR's share > 11 players
+
+[augment.players.learned]      # augment/players/learned.py (players = "learned")
+seed = 10
+model = "cache/players_learned/BAR-ATH.json"   # from augment/players/fit_learned.py
+bisection_steps = 8        # search of the find bias that matches BAR's number of tracked players
+duplicates = true          # add duplicated players, as fragments does
+duplicate_max_s = 30.0     # a duplicate lasts at most this long (assumption)
+duplicate_offset_m = [0.3, 2.0]   # its fixed offset from the real player (assumption)
+n_draws = 20000            # pre-drawn duplicate candidates per team
+duplicate_bisection_steps = 12   # search of the duplicate rate
+crowd_scale = 1.0          # x the lose model's crowd term: > 1 loses more players in crowds (BAR
+                           # tracks ~1.7 fewer players in dead time; learned as fitted ~1.1)
+
+[augment.swaps]                # augment/players/swaps.py (recipe swaps = "bar"; absent = "none")
+seed = 12
+model = "cache/player_swaps/BAR-ATH.json"   # from augment/players/fit_swaps.py
+dead_share = 0.5           # share of the swaps started on dead-ball frames (the rest in play)
+rate_scale = 1.0           # x BAR's swaps per minute
+
+[augment.ball]                # augment/ball/hidden.py (ball = "hidden")
+seed = 0
+model = "cache/ball_loss/BAR-ATH.json"   # from augment/ball/fit_hidden.py
+
+[augment.keeper]               # augment/ball/keeper_holds.py (optional recipe key keeper = "hide")
+seed = 13
+prob = 0.8                 # share of the live keeper holds (from the tracking of the DFL match) hidden
+lead_s = [0.0, 0.6]        # the ball is lost this long (uniform) after the hold starts
+tail_s = [0.0, 6.0]        # and found this long after it ends: BAR's ball is often lost for ~10 s
+
+[augment.whistle]              # augment/whistle/simulated.py (recipe whistle = <profile>)
+seed = 11
+start_offset_s = [-0.2, 0.5, 1.5]   # start whistle: true start + N(mean, sd) s, clipped to +/-clip
+                           # (the detector's whistles sit a median 0.2 s before BAR's predicted starts)
+restart_lead_s = [0.3, 2.5]   # restart whistle: this many seconds (uniform) before play restarts
+# P(the referee whistles), per stoppage class (evaluation/stoppage_types.fine_class), from the
+# Laws: stop for fouls, offsides, injuries; restart at kickoffs, penalties, some free kicks.
+start = {whistle = 0.95, incident = 0.9, goal = 0.5, throw_in = 0.05, goal_kick = 0.05, corner = 0.05, other = 0.3}
+restart = {whistle = 0.3, incident = 0.6, goal = 1.0, throw_in = 0.05, goal_kick = 0.05, corner = 0.05, other = 0.2}
+
+[augment.whistle.profiles]     # open table: [low, high] per match copy. recall = share of the
+                               # referee's whistles the detector keeps; false_per_min over the halves
+train = {recall = [0.1, 0.8], false_per_min = [0.0, 0.25]}
+bar = {recall = [0.5, 0.5], false_per_min = [0.15, 0.15]}   # matches the BAR preset: 0.42/min,
+                           # 43% near a start, 19% of starts with one (vs ens_all5; DFL: see report)
+low = {recall = [0.25, 0.25], false_per_min = [0.2, 0.2]}    # a worse detector than we think
+high = {recall = [0.8, 0.8], false_per_min = [0.05, 0.05]}   # a refined detector
+
+[augment.dead_ball.uniform]    # augment/dead_ball/uniform.py (dead_ball = "uniform")
+seed = 8
+target_speed = 2.7         # m/s: median ball speed of the path
+smooth_s = 1.0             # the wander's velocity changes over about this long
+margin_m = 3.0             # the ball stays within this of the pitch lines
+
+[augment.dead_ball.bar]        # augment/dead_ball/bar.py (dead_ball = "bar")
+seed = 9
+scale_range = [0.75, 1.3]  # one speed scale per match copy, drawn from this range
+margin_m = 3.0             # the ball stays within this of the pitch lines
+library = "cache/dead_alive_dfl/bar_motion/library.npz"   # built from BAR-ATH if missing
+# How the library is built (only when it is (re)built; a library built with other values is refused):
+voters = ["tcn_players_only", "tcn_uniform_fragments", "tcn_uniform_learned"]   # cache/dead_alive/<name>/frames.csv:
+                           # their configs (and bar.name) are in configs/; none uses this library
+min_votes = 2              # a BAR frame is dead when at least this many voters say so
+min_stretch_s = 2.0        # shorter voted stretches are skipped
+piece_s = {start = 1.0, middle = 3.0, end = 1.0}   # piece length per phase
+phase_s = 2.0              # first / last this long of a stretch are its start / end phase
+max_step_m = 1.2           # a frame-to-frame jump above this (30 m/s) is a tracker artefact
+
+# --- the network and its training ---------------------------------------------------------------
+
+[model]                    # model/tcn.py
+channels = 64              # width of every convolution
+kernel = 3                 # steps per convolution (centred: looks back and ahead)
+dilations = [1, 2, 4, 8, 16, 32, 64, 128]   # receptive field 1021 steps: about +/-100 s
+dropout = 0.1              # regularisation inside each block
+
+[train]                    # training/fit_tcn.py
+epochs = 40                # fixed, no early stopping: it would peek at the held-out match
+batch_size = 32            # training windows per gradient step
+window_s = 120.0           # training windows: 2 minutes, cut at random inside a half
+learning_rate = 1e-3       # AdamW
+weight_decay = 1e-4        # AdamW
+boundary_weight = 0.5      # weight of the start / stop heads in the loss
+boundary_sigma_s = 0.4     # width of their soft targets around every true boundary
+seed = 0
+log_every = 5              # log losses and the primary condition's dead_f1 every this many
+                           # epochs (watching only, never to stop early); 0 = never
+
+[types]                    # optional stoppage-type output of the TCN (model/tcn.py, fit_tcn.py)
+classes = []               # empty: no type output. Else a subset of whistle, throw_in, goal_kick,
+                           # corner, goal, incident, other ("other" required); labels from the DFL
+                           # events (evaluation/stoppage_types.py fine_class)
+weight = 0.5               # weight of the type cross-entropy in the loss (dead steps only)
+seed = 1                   # initialisation of the type output, outside the global random stream
+
+# --- decoding: per-step heads -> whole stoppages ------------------------------------------------
+
+[decoding]                 # decoding/hsmm.py, duration priors from the fold's training matches
+temperature = 0.5          # weight of the dead-head evidence against the duration prior
+bandwidth = 0.25           # width of each duration bump, in log-duration: about +/-25%
+dead_max_s = 300.0         # longest possible stoppage (an injury, a long VAR check)
+alive_max_s = 600.0        # longest possible stretch of live play
+w_start = 0.0              # weight of the start head at a stoppage's first step (0 = Xavi's decoder)
+w_stop = 0.0               # weight of the stop head at its end
+
+[decoding.typed]           # decoding/typed.py: one dead state per [types] class (needs the type output)
+enabled = false            # false: the two-state HSMM above
+type_weight = 1.0          # weight of the type evidence, log P(class | step) - log P(class)
+evidence = "mean"          # "mean": its mean over a stoppage, counted once; "sum": summed over its
+                           # steps and scaled by temperature, like the dead evidence
+
+[decoding.grid]            # decoding/grid.py: every setting on every fold, nested selection
+enabled = false            # run the grid after training
+temperatures = [0.25, 0.5, 0.75, 1.0]
+w_start = [0.0, 0.5, 1.0, 2.0]
+w_stop = [0.0, 0.5, 1.0, 2.0]
+extra = []                 # more [temperature, w_start, w_stop] settings, e.g. [[0.1, 3.0, 0.0]]
+type_weights = [1.0]       # typed HSMM only: crossed with every setting above
+type_evidence = ["mean"]   # typed HSMM only: crossed too
+conditions = ["bar_motion"]   # conditions that get every setting (the others: the config's decoder)
+select_metric = "spell_f1_ctrl"   # chosen on the mean over the other folds
+select_condition = "bar_motion"   # the setting chosen on all folds of this one is "the grid's"
+
+# --- BAR-ATH ------------------------------------------------------------------------------------
+
+[bar]                      # after the folds: train on all dev matches, predict BAR-ATH
+enabled = true
+train = "dev"              # matches of the BAR model: "dev" (the folds' matches) or "all" (+ the test match)
+match = "data/processed/BAR-ATH.parquet"
+name = ""                  # cache/dead_alive/<name>/ for the Dead-ball review page; empty = run name
+decoder = "config"         # "config": [decoding] as above; "grid": the grid's chosen setting
+teams = "evaluation/results/baseline_smooth50.csv"   # H/A of submission.csv in that folder
+whistles = "cache/audio/BAR-ATH_broadcast_whistles_preset.csv"   # audio/whistle.py --preset broadcast
+                           # --source broadcast: the BAR whistle flag, and the simulated durations

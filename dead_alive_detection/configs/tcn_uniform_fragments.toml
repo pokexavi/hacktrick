@@ -1,0 +1,22 @@
+# Players lost at random (fragments), made-up dead-ball motion (no BAR library needed): the baseline
+# of tcn_uniform_learned.toml. Only the players differ, and both score both conditions.
+extends = "tcn_bar.toml"
+
+[augment.recipes.learned_uniform]
+players = "learned"
+dead_ball = "uniform"
+ball = "hidden"
+
+[augment.train]
+recipe = "bar_moving"
+
+[augment.eval]
+conditions = ["bar_moving", "learned_uniform", "clean"]
+primary = "bar_moving"
+
+[augment.players.fragments]
+profile = "cache/players_learned/BAR-ATH.json"   # the same BAR-ATH aggregates for both kinds
+
+[decoding.grid]
+conditions = ["bar_moving"]
+select_condition = "bar_moving"

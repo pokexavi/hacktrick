@@ -1,0 +1,95 @@
+# Resolved config (every option): written by the run.
+name = "v1_frozen_annotated"
+
+[data]
+dfl_dir = "external/dfl/processed"
+labels_dir = "possession_exploration/labels"
+test_match = "DFL-MAT-J03WR9"
+folds = []
+min_frames = 25
+
+[runtime]
+threads = 8
+device = "cuda"
+cache = "cache/possession_model"
+bundle = "/kaggle/input/datasets/pokexavi/annotated-data/possession_kaggle/items"
+
+[steps]
+hz = 5
+smooth_frames = 5
+vel_frames = 2
+acc_frames = 5
+speed_cap = 10.0
+accel_cap = 10.0
+max_per_team = 16
+since_cap_s = 10.0
+
+[augment]
+hidden_fracs = [0.0, 0.25, 0.41, 0.6, 0.8, 1.0]
+mirror_y = 0.5
+
+[augment.fragments]
+seed = 7
+profile = "data/processed/noise_profile.json"
+duplicates = true
+duplicate_max_s = 30.0
+duplicate_offset_m = [0.3, 2.0]
+n_draws = 20000
+bisection_steps = 12
+
+[augment.learned]
+seed = 10
+model = "cache/players_learned/BAR-ATH.json"
+bisection_steps = 8
+duplicates = true
+duplicate_max_s = 30.0
+duplicate_offset_m = [0.3, 2.0]
+n_draws = 20000
+duplicate_bisection_steps = 12
+crowd_scale = 1.5
+
+[augment.ball]
+seed = 0
+model = "cache/ball_loss/BAR-ATH.json"
+
+[model.encoder]
+d = 64
+heads = 4
+layers = 2
+biased_heads = 2
+dist_scale_m = 10.0
+ff_mult = 2
+dropout = 0.0
+
+[model.temporal]
+layers = 2
+heads = 4
+window_s = 30.0
+ff_mult = 2
+dropout = 0.1
+
+[heads]
+change_weight = 0.5
+change_sigma_s = 0.4
+
+[train]
+epochs = 20
+batches_per_epoch = 150
+batch_size = 16
+learning_rate = 0.001
+weight_decay = 0.0001
+grad_clip = 1.0
+seeds = [0]
+log_every = 5
+
+[decoding]
+temperature = 0.5
+w_change = 2.0
+bandwidth = 0.25
+max_s = 300.0
+
+[decoding.grid]
+temperatures = [0.25, 0.5, 1.0]
+w_change = [0.0, 1.0, 2.0, 4.0]
+bandwidths = [0.25, 0.35, 0.5]
+select_metric = "spell_f1_mean"

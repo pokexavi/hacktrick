@@ -1,0 +1,8 @@
+# tcn_bar_keeperhold with training seed 2.
+extends = "tcn_bar_keeperhold.toml"
+
+[train]
+seed = 2
+
+[bar]
+name = "tcn_bar_keeperhold_s2"

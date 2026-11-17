@@ -1,0 +1,36 @@
+# tcn_bar_final with the ball also hidden while a keeper holds it in live play (recipe keeper = "hide",
+# night of 2026-11-09/10). Seeds 0-2 (_s1, _s2), all7 = BAR model on the 7 DFL matches.
+# The two _keeper conditions score the same forced gaps on the held-out match; the base model's
+# heads on them come from analysis/keeper_eval.py.
+extends = "tcn_bar_final.toml"
+
+[augment.train]
+recipe = "bar_motion_whistle_crowd_keeper_train"
+
+[augment.eval]
+conditions = ["bar_motion", "bar_motion_whistle", "bar_motion_whistle_crowd", "clean",
+              "bar_motion_keeper", "bar_motion_whistle_keeper"]
+
+[augment.recipes.bar_motion_whistle_crowd_keeper_train]
+players = "learned"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "train"
+keeper = "hide"
+
+[augment.recipes.bar_motion_keeper]
+players = "fragments"
+dead_ball = "bar"
+ball = "hidden"
+keeper = "hide"
+
+[augment.recipes.bar_motion_whistle_keeper]
+players = "fragments"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "bar"
+keeper = "hide"
+
+[bar]
+enabled = false
+name = "tcn_bar_keeperhold"

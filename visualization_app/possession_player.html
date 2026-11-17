@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; color: #e8eef6; background: #0e1724; }
+  .top { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 12px; padding: 10px; }
+  .top.no-video { grid-template-columns: minmax(0, 640px); justify-content: center; }
+  video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #101828; border-radius: 8px; }
+  .panel { background: #172333; padding: 10px; border-radius: 10px; }
+  .panel h3 { margin: 0 0 8px; font-size: 14px; }
+  canvas { width: 100%; display: block; border-radius: 8px; }
+  canvas#timeline { cursor: pointer; background: #101724; }
+  .controls { display: flex; gap: 12px; align-items: center; padding: 0 10px 6px; font-size: 13px; }
+  .controls button { background: #e8eef6; border: 0; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+  .controls input[type=range] { flex: 1; }
+  .legend { font-size: 12px; color: #9fb0c4; padding: 4px 10px; }
+</style>
+</head>
+<body>
+<div class="top" id="top">
+  <div id="video-box"><video id="video" controls playsinline preload="metadata"></video></div>
+  <div class="panel">
+    <h3>2D tracking</h3>
+    <canvas id="pitch"></canvas>
+    <div class="legend" id="status"></div>
+  </div>
+</div>
+<div class="controls">
+  <button id="play">Play</button>
+  <input id="seek" type="range" min="0" value="0">
+  <span id="clock"></span>
+</div>
+<div style="padding: 0 10px"><canvas id="timeline"></canvas></div>
+<div class="legend">Bars: red = H (home), blue = A (away), grey = dead ball, dark = no label (X).
+  Curve: P(H) of the reference model (0 at the bottom, 1 at the top, dashed 0.5). Yellow line: the
+  selected moment. Click the bars to seek. Pitch: home red, away blue, ball yellow; numbers are tracking
+  slots, not players.</div>
+<script>
+const p = __PAYLOAD__;
+const el = id => document.getElementById(id);
+const n = p.clipEnd - p.clipStart;
+const COL = {H: '#ef4444', A: '#3b82f6', D: '#8a93a0', X: '#1f2a3a'};
+const v = el('video');
+const hasVideo = !!p.video;
+if (hasVideo) v.src = 'data:video/mp4;base64,' + p.video;
+else { el('video-box').style.display = 'none'; el('top').classList.add('no-video'); }
+let frame = Math.max(0, Math.min(n - 1, p.mark - p.clipStart)), timer = null;
+el('seek').max = n - 1;
+
+function drawPitch(f) {
+  const canvas = el('pitch');
+  const w = Math.max(1, canvas.clientWidth), pad = w * .055;
+  const fw = w - 2 * pad, scale = fw / 105.3, fh = 68 * scale, h = fh + 2 * pad;
+  canvas.width = w * devicePixelRatio; canvas.height = h * devicePixelRatio; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d'); ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.fillStyle = '#397a4e'; ctx.fillRect(0, 0, w, h);
+  const x = q => pad + q * fw, y = q => pad + q * fh;
+  ctx.strokeStyle = '#f3fff2'; ctx.lineWidth = 1.4; ctx.strokeRect(pad, pad, fw, fh);
+  ctx.beginPath(); ctx.moveTo(w / 2, pad); ctx.lineTo(w / 2, pad + fh); ctx.stroke();
+  ctx.beginPath(); ctx.arc(w / 2, h / 2, 9.15 * scale, 0, 2 * Math.PI); ctx.stroke();
+  for (const side of [0, 1]) {
+    const gx = x(side);
+    ctx.strokeRect(side === 0 ? gx : gx - 16.5 * scale, h / 2 - 20.16 * scale, 16.5 * scale, 40.32 * scale);
+    ctx.strokeRect(side === 0 ? gx : gx - 5.5 * scale, h / 2 - 9.16 * scale, 5.5 * scale, 18.32 * scale);
+  }
+  const data = p.tracking ? p.tracking.frames[p.clipStart + f] : null;
+  const dot = (pos, colour, label) => {
+    if (!pos) return;
+    ctx.beginPath(); ctx.arc(x(pos[0]), y(pos[1]), Math.max(3, w / 100), 0, 2 * Math.PI);
+    ctx.fillStyle = colour; ctx.fill(); ctx.strokeStyle = 'white'; ctx.lineWidth = 1; ctx.stroke();
+    if (label) { ctx.font = 'bold 10px system-ui'; ctx.fillStyle = 'white'; ctx.fillText(label, x(pos[0]) + 6, y(pos[1]) - 6); }
+  };
+  if (data) {
+    data.players.forEach((pos, k) => {
+      const team = p.tracking.slots[k].team;
+      dot(pos, team === 'H' ? '#ef4444' : team === 'A' ? '#3b82f6' : '#aaa', String(k + 1));
+    });
+    dot(data.ball, '#ffe04b', 'Ball');
+  }
+  const now = p.rows.map(r => r.name + ': ' + (r.labels[f] || '?')).join(' · ');
+  el('status').textContent = (!p.tracking ? 'Tracking unavailable. ' : !data ? 'No ATD record. ' : '') + now;
+}
+
+function drawTimeline(f) {
+  const canvas = el('timeline');
+  const w = Math.max(1, canvas.clientWidth), label = 150, rowH = 22, gap = 6;
+  const curveH = p.ph ? 70 : 0, h = p.rows.length * (rowH + gap) + curveH + 10;
+  canvas.width = w * devicePixelRatio; canvas.height = h * devicePixelRatio; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d'); ctx.scale(devicePixelRatio, devicePixelRatio);
+  const span = w - label - 8, X = k => label + k / n * span;
+  ctx.font = '12px system-ui'; ctx.textBaseline = 'middle';
+  p.rows.forEach((r, i) => {
+    const top = i * (rowH + gap) + 4;
+    ctx.fillStyle = '#e8eef6'; ctx.fillText(r.name, 4, top + rowH / 2);
+    let a = 0;
+    for (let k = 1; k <= n; k++) {
+      if (k === n || r.labels[k] !== r.labels[a]) {
+        ctx.fillStyle = COL[r.labels[a]] || COL.X; ctx.fillRect(X(a), top, Math.max(1, X(k) - X(a)), rowH);
+        a = k;
+      }
+    }
+  });
+  if (p.ph) {
+    const top = p.rows.length * (rowH + gap) + 4;
+    ctx.fillStyle = '#e8eef6'; ctx.fillText('P(H) ' + p.phName, 4, top + curveH / 2);
+    ctx.strokeStyle = '#55657a'; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(label, top + curveH / 2); ctx.lineTo(label + span, top + curveH / 2); ctx.stroke();
+    ctx.setLineDash([]); ctx.strokeStyle = '#f5f7fa'; ctx.lineWidth = 1.5; ctx.beginPath();
+    let started = false;
+    p.ph.forEach((q, k) => {
+      if (q === null) { started = false; return; }
+      const yy = top + (1 - q) * curveH;
+      if (!started) { ctx.moveTo(X(k), yy); started = true; } else ctx.lineTo(X(k), yy);
+    });
+    ctx.stroke(); ctx.lineWidth = 1;
+  }
+  ctx.fillStyle = '#ffe04b'; ctx.fillRect(X(p.mark - p.clipStart), 0, 2, h);
+  ctx.fillStyle = 'white'; ctx.fillRect(X(f), 0, 2, h);
+  canvas.onclick = e => { const k = Math.round((e.offsetX - label) / span * n); if (k >= 0 && k < n) seek(k); };
+}
+
+function clock(f) {
+  const s = (p.clipStart + f) / p.fps, m = Math.floor(s / 60);
+  return 'frame ' + (p.clipStart + f) + ' · ' + m + ':' + String((s - 60 * m).toFixed(2)).padStart(5, '0');
+}
+function draw(f) { frame = f; el('seek').value = f; el('clock').textContent = clock(f); drawPitch(f); drawTimeline(f); }
+function seek(f) { if (hasVideo) v.currentTime = f / p.fps; draw(f); }
+
+el('seek').oninput = e => seek(Number(e.target.value));
+el('play').onclick = () => {
+  if (hasVideo) { if (v.paused) v.play(); else v.pause(); return; }
+  if (timer) { clearInterval(timer); timer = null; el('play').textContent = 'Play'; return; }
+  el('play').textContent = 'Pause';
+  timer = setInterval(() => { if (frame >= n - 1) { clearInterval(timer); timer = null; el('play').textContent = 'Play'; } else draw(frame + 1); }, 1000 / p.fps);
+};
+if (hasVideo) {
+  v.addEventListener('play', () => el('play').textContent = 'Pause');
+  v.addEventListener('pause', () => el('play').textContent = 'Play');
+  v.addEventListener('timeupdate', () => draw(Math.min(n - 1, Math.round(v.currentTime * p.fps))));
+  v.addEventListener('loadedmetadata', () => { v.currentTime = frame / p.fps; });
+}
+window.addEventListener('resize', () => draw(frame));
+draw(frame);
+</script>
+</body>
+</html>

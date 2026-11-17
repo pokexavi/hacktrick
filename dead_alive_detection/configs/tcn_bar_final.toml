@@ -1,0 +1,36 @@
+# Everything together (2026-11-06 night): combo w01 (bar_motion + whistle input + stoppage types
+# at weight 0.01 + speed caps and bumps) plus the night's new pieces on the base:
+#   2b  tracked-player counts as inputs, trained on players lost the BAR way in crowds
+#       (learned, crowd_scale 1.5: BAR tracks 1.7 fewer players in dead time)
+#   3a  goalkeeper inputs (keeper next to the last-seen ball, his speed, distance to goal, box)
+# Seeds 0-2 (tcn_bar_final, _s1, _s2); _all7 = the same with the BAR model trained on all 7 DFL
+# matches. Compare with tcn_bar_v1_whistle{,_s1,_s2} (and _crowdeval for the crowd condition).
+extends = "tcn_bar_combo_w01.toml"
+
+[features]
+tracked = true
+keeper = true
+
+[augment.players.learned]
+crowd_scale = 1.5
+
+[augment.train]
+recipe = "bar_motion_whistle_crowd_train"
+
+[augment.eval]
+conditions = ["bar_motion", "bar_motion_whistle", "bar_motion_whistle_crowd", "clean"]
+
+[augment.recipes.bar_motion_whistle_crowd_train]
+players = "learned"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "train"
+
+[augment.recipes.bar_motion_whistle_crowd]
+players = "learned"
+dead_ball = "bar"
+ball = "hidden"
+whistle = "bar"
+
+[bar]
+name = "tcn_bar_final"

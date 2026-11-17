@@ -1,0 +1,3 @@
+# Converted open datasets and their working copies: large, rebuilt from labels/. Never commit.
+datasets/
+__pycache__/

@@ -1,0 +1,179 @@
+<?xml version='1.0' encoding='utf-8'?>
+<file>
+  <ALL_INSTANCES>
+    <instance>
+      <ID>1</ID>
+      <start>0.50</start>
+      <end>5.50</end>
+      <code>SET PIECES</code>
+      <label>
+        <group>Team</group>
+        <text>Barcelona</text>
+      </label>
+      <label>
+        <group>Half</group>
+        <text>1st Half</text>
+      </label>
+      <label>
+        <group>Type</group>
+        <text>Kick Off (Start)</text>
+      </label>
+    </instance>
+    <instance>
+      <ID>2</ID>
+      <start>6.36</start>
+      <end>10.45</end>
+      <code>PROGRESSION</code>
+      <label>
+        <group>Team</group>
+        <text>Atletic Club</text>
+      </label>
+      <label>
+        <group>Half</group>
+        <text>1st Half</text>
+      </label>
+    </instance>
+    <instance>
+      <ID>3</ID>
+      <start>12.83</start>
+      <end>27.98</end>
+      <code>BUILD UP</code>
+      <label>
+        <group>Team</group>
+        <text>Barcelona</text>
+      </label>
+      <label>
+        <group>Half</group>
+        <text>1st Half</text>
+      </label>
+    </instance>
+    <instance>
+      <ID>4</ID>
+      <start>13.23</start>
+      <end>29.43</end>
+      <code>DEFENDING IN DEFENSIVE THIRD</code>
+      <label>
+        <group>Team</group>
+        <text>Atletic Club</text>
+      </label>
+      <label>
+        <group>Half</group>
+        <text>1st Half</text>
+      </label>
+    </instance>
+    <instance>
+      <ID>5</ID>
+      <start>28.89</start>
+      <end>31.32</end>
+      <code>CREATING CHANCES</code>
+      <label>
+        <group>Team</group>
+        <text>Atletic Club</text>
+      </label>
+      <label>
+        <group>Half</group>
+        <text>1st Half</text>
+      </label>
+    </instance>
+    <instance>
+      <ID>6</ID>
+      <start>30.38</start>
+      <end>31.38</end>
+      <code>DEFENDING IN ATTACKING THIRD</code>
+      <label>
+        <group>Team</group>
+        <text>Barcelona</text>
+      </label>
+      <label>
+        <group>Half</group>
+        <text>1st Half</text>
+      </label>
+    </instance>
+  </ALL_INSTANCES>
+  <ROWS>
+    <row>
+      <code>BUILD UP</code>
+      <R>23568</R>
+      <G>31749</G>
+      <B>56329</B>
+    </row>
+    <row>
+      <code>PROGRESSION</code>
+      <R>20207</R>
+      <G>39650</G>
+      <B>38680</B>
+    </row>
+    <row>
+      <code>BALL IN FINAL THIRD</code>
+      <R>61276</R>
+      <G>45221</G>
+      <B>26310</B>
+    </row>
+    <row>
+      <code>CREATING CHANCES</code>
+      <R>26676</R>
+      <G>34876</G>
+      <B>55791</B>
+    </row>
+    <row>
+      <code>LONG BALL</code>
+      <R>25776</R>
+      <G>31324</G>
+      <B>43451</B>
+    </row>
+    <row>
+      <code>ATTACKING TRANSITION</code>
+      <R>37857</R>
+      <G>40418</G>
+      <B>2950</B>
+    </row>
+    <row>
+      <code>BALL IN THE BOX</code>
+      <R>23142</R>
+      <G>55623</G>
+      <B>39048</B>
+    </row>
+    <row>
+      <code>PLAYERS IN THE BOX</code>
+      <R>32244</R>
+      <G>58123</G>
+      <B>59096</B>
+    </row>
+    <row>
+      <code>DEFENDING IN DEFENSIVE THIRD</code>
+      <R>53207</R>
+      <G>5008</G>
+      <B>20902</B>
+    </row>
+    <row>
+      <code>DEFENDING IN MIDDLE THIRD</code>
+      <R>40818</R>
+      <G>55067</G>
+      <B>49748</B>
+    </row>
+    <row>
+      <code>DEFENDING IN ATTACKING THIRD</code>
+      <R>42525</R>
+      <G>49158</G>
+      <B>31810</B>
+    </row>
+    <row>
+      <code>DEFENSIVE TRANSITION</code>
+      <R>6386</R>
+      <G>49163</G>
+      <B>63576</B>
+    </row>
+    <row>
+      <code>SET PIECES</code>
+      <R>37532</R>
+      <G>61730</G>
+      <B>20084</B>
+    </row>
+    <row>
+      <code>GOALS</code>
+      <R>24384</R>
+      <G>64540</G>
+      <B>39823</B>
+    </row>
+  </ROWS>
+</file>

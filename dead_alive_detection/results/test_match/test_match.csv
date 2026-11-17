@@ -1,0 +1,9 @@
+model,decoder,condition,spell_f1,macro_f1,dead_f1,n_pred,n_true,missed,false,start_err_s,end_err_s,ball_hidden
+final,HSMM,clean,0.9318,0.9899,0.9746,89,92,3,0,0.3604,1.5933,0.0000
+final,threshold 0.5,clean,0.9006,0.9871,0.8922,112,92,0,20,0.4417,0.2843,0.0000
+final,HSMM,corrupted,0.9206,0.9719,0.9268,91,92,5,4,0.7508,0.6814,0.4305
+final,threshold 0.5,corrupted,0.8695,0.9707,0.7799,127,92,5,40,0.8276,0.6037,0.4305
+clean,HSMM,clean,0.9293,0.9964,0.9902,91,92,1,0,0.1486,1.0514,0.0000
+clean,threshold 0.5,clean,0.9259,0.9962,0.9946,93,92,0,1,0.1674,0.0730,0.0000
+clean,HSMM,corrupted,0.6219,0.6886,0.2884,98,92,45,51,11.4885,8.3668,0.4305
+clean,threshold 0.5,corrupted,0.5965,0.6894,0.2253,137,92,46,91,11.5287,8.4557,0.4305
